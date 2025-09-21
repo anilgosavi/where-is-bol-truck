@@ -1,28 +1,3 @@
-# Debug route to load daily stats JSON file into Redis for a given date (for development only!)
-@app.route('/debug/load-daily-stats/<date_str>')
-def debug_load_daily_stats(date_str):
-    if not redis_client:
-        return "Redis not configured", 500
-    file_path = get_daily_file_path(date_str)
-    if not os.path.exists(file_path):
-        return {"error": f"File not found: {file_path}"}, 404
-    try:
-        with open(file_path, 'r') as f:
-            file_data = json.load(f)
-        redis_client.set(f"truck:daily:{date_str}", json.dumps(file_data))
-        return {"status": "success", "message": f"Loaded {file_path} into Redis as truck:daily:{date_str}"}
-    except Exception as e:
-        return {"error": str(e)}, 500
-# Debug route to list all Redis keys (for development only!)
-@app.route('/debug/redis-keys')
-def debug_redis_keys():
-    if not redis_client:
-        return "Redis not configured", 500
-    try:
-        keys = [k.decode() if isinstance(k, bytes) else k for k in redis_client.keys('*')]
-        return {"keys": keys}
-    except Exception as e:
-        return {"error": str(e)}, 500
 from flask import Flask, render_template_string
 import threading
 import time
@@ -39,6 +14,68 @@ from datetime import datetime, date, timedelta
 import requests
 
 app = Flask(__name__)
+
+REDIS_NOT_CONFIGURED_MSG = "Redis not configured"
+# Debug route to list all Redis keys (for development only!)
+@app.route('/debug/redis-keys')
+def debug_redis_keys():
+    if not redis_client:
+        return REDIS_NOT_CONFIGURED_MSG, 500
+    try:
+        keys = [k.decode() if isinstance(k, bytes) else k for k in redis_client.keys('*')]
+        table = []
+        for key in keys:
+            try:
+                value = redis_client.get(key)
+                # Try to decode as utf-8 and pretty-print JSON if possible
+                if value is not None:
+                    try:
+                        value_str = value.decode() if isinstance(value, bytes) else str(value)
+                        if value_str.startswith('{') or value_str.startswith('['):
+                            value_str = json.dumps(json.loads(value_str), indent=2)
+                    except Exception:
+                        value_str = str(value)
+                else:
+                    value_str = None
+                table.append({"key": key, "value": value_str})
+            except Exception as e:
+                table.append({"key": key, "value": f"Error: {e}"})
+        return {"data": table}
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.route('/debug/load-daily-stats/<date_str>')
+def debug_load_daily_stats(date_str):
+    if not redis_client:
+        return REDIS_NOT_CONFIGURED_MSG, 500
+    file_path = get_daily_file_path(date_str)
+    if not os.path.exists(file_path):
+        return {"error": f"File not found: {file_path}"}, 404
+    try:
+        with open(file_path, 'r') as f:
+            file_data = json.load(f)
+        redis_client.set(f"truck:daily:{date_str}", json.dumps(file_data))
+        return {"status": "success", "message": f"Loaded {file_path} into Redis as truck:daily:{date_str}"}
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.route('/debug/load-all-daily-stats')
+def debug_load_all_daily_stats():
+    if not redis_client:
+        return REDIS_NOT_CONFIGURED_MSG, 500
+    daily_stats_path = os.path.join('truck_data', 'daily_stats.json')
+    if not os.path.exists(daily_stats_path):
+        return {"error": f"File not found: {daily_stats_path}"}, 404
+    try:
+        with open(daily_stats_path, 'r') as f:
+            all_stats = json.load(f)
+        loaded = []
+        for date_str, stats in all_stats.items():
+            redis_client.set(f"truck:daily:{date_str}", json.dumps(stats))
+            loaded.append(date_str)
+        return {"status": "success", "loaded_dates": loaded, "message": f"Loaded {len(loaded)} days from daily_stats.json into Redis."}
+    except Exception as e:
+        return {"error": str(e)}, 500
 
 # Data file paths
 DATA_DIR = "truck_data"
@@ -170,6 +207,8 @@ def load_historical_data():
         try:
             data = redis_client.get("truck:location_history")
             if data:
+                if isinstance(data, bytes):
+                    data = data.decode()
                 data = json.loads(data)
                 return data if isinstance(data, list) else []
         except Exception as e:
@@ -208,6 +247,8 @@ def load_daily_stats():
         try:
             data = redis_client.get("truck:daily_stats")
             if data:
+                if isinstance(data, bytes):
+                    data = data.decode()
                 data = json.loads(data)
                 return data if isinstance(data, dict) else {}
         except Exception as e:
@@ -246,6 +287,8 @@ def load_last_location():
         try:
             data = redis_client.get("truck:last_location")
             if data:
+                if isinstance(data, bytes):
+                    data = data.decode()
                 return json.loads(data)
         except Exception as e:
             print(f"❌ Error loading last location from Redis: {e}")
@@ -327,6 +370,8 @@ def load_daily_file(date_str):
         try:
             data = redis_client.get(f"truck:daily:{date_str}")
             if data:
+                if isinstance(data, bytes):
+                    data = data.decode()
                 data = json.loads(data)
                 # Migrate old format to new format if needed
                 if 'samples_by_minute' in data and 'minute_locations' not in data:
@@ -473,22 +518,18 @@ def add_minute_location(daily_data, timestamp, lat, lng, speed, is_moving):
 
 def calculate_daily_distance(daily_data):
     """Calculate total distance from minute locations"""
-    if len(daily_data['minute_locations']) < 2:
+    locations = daily_data.get('minute_locations')
+    if not locations or len(locations) < 2:
         return 0.0
-    
     total_distance = 0.0
-    locations = daily_data['minute_locations']
-    
     for i in range(1, len(locations)):
         prev_loc = locations[i-1]
         curr_loc = locations[i]
-        
         distance = haversine_distance(
             prev_loc['latitude'], prev_loc['longitude'],
             curr_loc['latitude'], curr_loc['longitude']
         )
         total_distance += distance
-    
     return total_distance
 
 
