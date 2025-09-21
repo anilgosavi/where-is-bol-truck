@@ -2153,8 +2153,13 @@ def index():
                         }
                     }
                     
-                    // Update status with speed and movement info
-                    document.getElementById('lastUpdate').textContent = lastUpdate.toLocaleTimeString();
+                    // Update status with speed and movement info - show local time with timezone
+                    const localTimeWithTZ = lastUpdate.toLocaleTimeString('en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        timeZoneName: 'short'
+                    });
+                    document.getElementById('lastUpdate').textContent = localTimeWithTZ;
                     document.getElementById('speed').textContent = Math.round(currentSpeed);
                     
                     // Show status with 10-minute average when moving or stopped timestamp
