@@ -1,3 +1,18 @@
+# Debug route to load daily stats JSON file into Redis for a given date (for development only!)
+@app.route('/debug/load-daily-stats/<date_str>')
+def debug_load_daily_stats(date_str):
+    if not redis_client:
+        return "Redis not configured", 500
+    file_path = get_daily_file_path(date_str)
+    if not os.path.exists(file_path):
+        return {"error": f"File not found: {file_path}"}, 404
+    try:
+        with open(file_path, 'r') as f:
+            file_data = json.load(f)
+        redis_client.set(f"truck:daily:{date_str}", json.dumps(file_data))
+        return {"status": "success", "message": f"Loaded {file_path} into Redis as truck:daily:{date_str}"}
+    except Exception as e:
+        return {"error": str(e)}, 500
 # Debug route to list all Redis keys (for development only!)
 @app.route('/debug/redis-keys')
 def debug_redis_keys():
