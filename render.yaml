@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: where-is-bol-truck
+    runtime: python
+    buildCommand: ./build.sh
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 120 wsgi:app
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.4
+      - key: PORT
+        generateValue: true
+    healthCheckPath: /
+    autoDeploy: true

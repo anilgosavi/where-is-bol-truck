@@ -1,0 +1,29 @@
+{
+  "date": "2025-09-19",
+  "start_time": 1726736400,
+  "end_time": null,
+  "start_location": {
+    "latitude": 30.123,
+    "longitude": -97.456,
+    "timestamp": 1726736400
+  },
+  "end_location": null,
+  "total_distance_miles": 0.0,
+  "total_travel_time_seconds": 0,
+  "minute_locations": [
+    {
+      "minute": 0,
+      "timestamp": 1726736400,
+      "latitude": 30.123,
+      "longitude": -97.456,
+      "speed": 0,
+      "moving": false
+    }
+  ],
+  "summary": {
+    "first_movement_time": null,
+    "last_movement_time": null,
+    "moving_time_seconds": 0,
+    "stopped_time_seconds": 0
+  }
+}
