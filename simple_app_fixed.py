@@ -4,6 +4,11 @@ import time
 import math
 import os
 import json
+import redis
+
+# Initialize Redis connection (use Render's internal URL or REDIS_URL env var)
+REDIS_URL = os.environ.get("REDIS_INTERNAL_URL") or os.environ.get("REDIS_URL")
+redis_client = redis.from_url(REDIS_URL) if REDIS_URL else None
 from datetime import datetime, date, timedelta
 
 import requests
@@ -136,6 +141,15 @@ def is_realistic_speed(speed_mph):
 
 def load_historical_data():
     """Load historical GPS points from disk (list of dicts)."""
+    if redis_client:
+        try:
+            data = redis_client.get("truck:location_history")
+            if data:
+                data = json.loads(data)
+                return data if isinstance(data, list) else []
+        except Exception as e:
+            print(f"❌ Error loading historical data from Redis: {e}")
+    # Fallback to file if Redis is not available
     try:
         if os.path.exists(HISTORY_FILE):
             with open(HISTORY_FILE, 'r') as f:
@@ -148,6 +162,13 @@ def load_historical_data():
 
 def save_historical_data(history):
     """Persist historical GPS points to disk."""
+    if redis_client:
+        try:
+            redis_client.set("truck:location_history", json.dumps(history))
+            return
+        except Exception as e:
+            print(f"❌ Error saving historical data to Redis: {e}")
+    # Fallback to file if Redis is not available
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
         with open(HISTORY_FILE, 'w') as f:
@@ -158,6 +179,15 @@ def save_historical_data(history):
 
 def load_daily_stats():
     """Load daily stats dict from disk."""
+    if redis_client:
+        try:
+            data = redis_client.get("truck:daily_stats")
+            if data:
+                data = json.loads(data)
+                return data if isinstance(data, dict) else {}
+        except Exception as e:
+            print(f"❌ Error loading daily stats from Redis: {e}")
+    # Fallback to file if Redis is not available
     try:
         if os.path.exists(DAILY_STATS_FILE):
             with open(DAILY_STATS_FILE, 'r') as f:
@@ -170,6 +200,13 @@ def load_daily_stats():
 
 def save_daily_stats(stats):
     """Persist daily stats to disk."""
+    if redis_client:
+        try:
+            redis_client.set("truck:daily_stats", json.dumps(stats))
+            return
+        except Exception as e:
+            print(f"❌ Error saving daily stats to Redis: {e}")
+    # Fallback to file if Redis is not available
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
         with open(DAILY_STATS_FILE, 'w') as f:
@@ -180,6 +217,15 @@ def save_daily_stats(stats):
 
 def load_last_location():
     """Load last saved location from disk (dict with latitude, longitude, timestamp)."""
+    if redis_client:
+        try:
+            data = redis_client.get("truck:last_location")
+            if data:
+                return json.loads(data)
+        except Exception as e:
+            print(f"❌ Error loading last location from Redis: {e}")
+        return None
+    # Fallback to file if Redis is not available
     try:
         if os.path.exists(LAST_LOCATION_FILE):
             with open(LAST_LOCATION_FILE, 'r') as f:
@@ -191,6 +237,13 @@ def load_last_location():
 
 def save_last_location(lat, lng, ts):
     """Persist the last known location to disk."""
+    if redis_client:
+        try:
+            redis_client.set("truck:last_location", json.dumps({"latitude": lat, "longitude": lng, "timestamp": ts}))
+            return
+        except Exception as e:
+            print(f"❌ Error saving last location to Redis: {e}")
+    # Fallback to file if Redis is not available
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
         with open(LAST_LOCATION_FILE, 'w') as f:
@@ -227,29 +280,48 @@ def create_empty_daily_file(date_str, start_time, start_lat, start_lng):
         }
     }
     
+    if redis_client:
+        try:
+            redis_client.set(f"truck:daily:{date_str}", json.dumps(daily_data))
+            print(f"📁 Created new daily file in Redis: truck:daily:{date_str}")
+            return daily_data
+        except Exception as e:
+            print(f"❌ Error creating daily file in Redis: {e}")
+    # Fallback to file if Redis is not available
     os.makedirs(DAILY_FILES_DIR, exist_ok=True)
     file_path = get_daily_file_path(date_str)
     with open(file_path, 'w') as f:
         json.dump(daily_data, f, indent=2)
-    
     print(f"📁 Created new daily file: {file_path}")
     return daily_data
 
 
 def load_daily_file(date_str):
     """Load daily tracking data for a specific date"""
+    if redis_client:
+        try:
+            data = redis_client.get(f"truck:daily:{date_str}")
+            if data:
+                data = json.loads(data)
+                # Migrate old format to new format if needed
+                if 'samples_by_minute' in data and 'minute_locations' not in data:
+                    data = migrate_old_daily_format(data)
+                    save_daily_file(date_str, data)  # Save migrated format
+                    print(f"🔄 Migrated daily file {date_str} to new format (Redis)")
+                return data
+        except Exception as e:
+            print(f"❌ Error loading daily file from Redis: {e}")
+    # Fallback to file if Redis is not available
     file_path = get_daily_file_path(date_str)
     try:
         if os.path.exists(file_path):
             with open(file_path, 'r') as f:
                 data = json.load(f)
-            
             # Migrate old format to new format if needed
             if 'samples_by_minute' in data and 'minute_locations' not in data:
                 data = migrate_old_daily_format(data)
                 save_daily_file(date_str, data)  # Save migrated format
                 print(f"🔄 Migrated daily file {date_str} to new format")
-            
             return data
     except Exception as e:
         print(f"❌ Error loading daily file {file_path}: {e}")
@@ -312,18 +384,33 @@ def save_daily_file(date_str, daily_data):
 
 def add_minute_location(daily_data, timestamp, lat, lng, speed, is_moving):
     """Add a per-minute location entry to daily data"""
+
+    # Only add to cache if the truck is moving
+    if not is_moving:
+        return daily_data
+
+    # Only add if location or timestamp is different from last entry
+    if daily_data['minute_locations']:
+        last = daily_data['minute_locations'][-1]
+        if (
+            last['latitude'] == lat and
+            last['longitude'] == lng and
+            last['timestamp'] == timestamp
+        ):
+            return daily_data
+
     # Calculate minutes since start of day
     start_of_day = datetime.fromtimestamp(daily_data['start_time']).replace(hour=0, minute=0, second=0, microsecond=0)
     current_time = datetime.fromtimestamp(timestamp)
     minutes_since_start = int((current_time - start_of_day).total_seconds() / 60)
-    
+
     # Check if we already have this minute
     existing_minute = None
     for loc in daily_data['minute_locations']:
         if loc['minute'] == minutes_since_start:
             existing_minute = loc
             break
-    
+
     if existing_minute:
         # Update existing minute with latest data
         existing_minute.update({
@@ -344,10 +431,10 @@ def add_minute_location(daily_data, timestamp, lat, lng, speed, is_moving):
             "moving": is_moving
         }
         daily_data['minute_locations'].append(minute_entry)
-        
+
         # Keep sorted by minute
         daily_data['minute_locations'].sort(key=lambda x: x['minute'])
-    
+
     # Update end location and time
     daily_data['end_location'] = {
         "latitude": lat,
@@ -384,16 +471,28 @@ def get_current_day_data():
     """Get or create today's daily tracking data"""
     today = date.today().isoformat()
     daily_data = load_daily_file(today)
-    
+
+    # Migrate today's file data to Redis if Redis is available and cache is empty
+    if redis_client and daily_data is None:
+        file_path = get_daily_file_path(today)
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r') as f:
+                    file_data = json.load(f)
+                redis_client.set(f"truck:daily:{today}", json.dumps(file_data))
+                print(f"🔄 Migrated today's file data to Redis for {today}")
+                daily_data = file_data
+            except Exception as e:
+                print(f"❌ Error migrating today's file data to Redis: {e}")
+
     if daily_data is None:
         # Create new file with current location as start
         current_time = time.time()
         current_lat = location_data["driver"]["latitude"]
         current_lng = location_data["driver"]["longitude"]
-        
         daily_data = create_empty_daily_file(today, current_time, current_lat, current_lng)
         print(f"🆕 Started new day tracking for {today}")
-    
+
     return daily_data
 
 
