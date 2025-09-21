@@ -2025,130 +2025,103 @@ def calculate_journey_average():
 
 @app.route('/api/location')
 def get_location():
+    # Always fetch the latest truck location on every request
+    fetch_real_location()
     driver_data = location_data["driver"]
-    
+
     # Get current speed (1-min priority, 5-min fallback for vehicle icon)
     current_speed = round(driver_data["speed"])
-    
+
     # Get 10-minute average speed when moving (for status bar)
     avg_speed_10min = round(calculate_average_moving_speed(10))
-    
+
     # Get 30-minute average speed (persistent data)
     avg_speed_30min = round(calculate_average_moving_speed(30))
-    
+
     # Get 1-hour average speed for better overall tracking (using enhanced history)
     avg_speed_1hour = round(calculate_average_moving_speed(60))
-    
+
     # Get movement status (5-minute detection window)
     status, timestamp = get_movement_status()
-    
+
     # Get stopped duration in seconds
     stopped_duration_seconds = get_stopped_duration()
-    
+
     # NEW: Get current day data from daily file
     today_data = get_current_day_data()
     today_distance = today_data.get('total_distance_miles', 0) if today_data else 0
     today_travel_time = 0
     if today_data and today_data.get('start_time') and today_data.get('end_time'):
         today_travel_time = (today_data['end_time'] - today_data['start_time']) / 3600
-    
+
     # Get previous day stats
-    def get_location():
-        # Always fetch the latest truck location on every request
-        fetch_real_location()
-        driver_data = location_data["driver"]
+    prev_day_stats = get_previous_day_stats()
+    previous_travel = "No recent travel"
+    if prev_day_stats:
+        prev_date = datetime.fromisoformat(prev_day_stats['date']).strftime('%m/%d')
+        prev_hours = round(prev_day_stats['travel_time_hours'])
+        prev_miles = round(prev_day_stats['distance_miles'])
+        previous_travel = f"{prev_date} ({prev_hours}h, {prev_miles}mi)"
 
-        # Get current speed (1-min priority, 5-min fallback for vehicle icon)
-        current_speed = round(driver_data["speed"])
+    # Calculate journey average
+    journey_average = calculate_journey_average()
 
-        # Get 10-minute average speed when moving (for status bar)
-        avg_speed_10min = round(calculate_average_moving_speed(10))
+    # Build journey history using current day data
+    journey_history = []
+    if today_data and today_data.get('minute_locations'):
+        # Sample the minute locations for visualization
+        locations = today_data['minute_locations']
+        step = max(1, len(locations) // 50)  # Limit to ~50 points
 
-        # Get 30-minute average speed (persistent data)
-        avg_speed_30min = round(calculate_average_moving_speed(30))
+        for i in range(0, len(locations), step):
+            loc = locations[i]
+            journey_history.append({
+                "lat": loc['latitude'],
+                "lng": loc['longitude'],
+                "timestamp": loc['timestamp']
+            })
 
-        # Get 1-hour average speed for better overall tracking (using enhanced history)
-        avg_speed_1hour = round(calculate_average_moving_speed(60))
+        # Always include the latest point
+        if locations and journey_history[-1]['timestamp'] != locations[-1]['timestamp']:
+            last_loc = locations[-1]
+            journey_history.append({
+                "lat": last_loc['latitude'],
+                "lng": last_loc['longitude'],
+                "timestamp": last_loc['timestamp']
+            })
 
-        # Get movement status (5-minute detection window)
-        status, timestamp = get_movement_status()
+    # Get daily start location from today's data
+    daily_start_location = None
+    if today_data and today_data.get('start_location'):
+        daily_start_location = today_data['start_location']
 
-        # Get stopped duration in seconds
-        stopped_duration_seconds = get_stopped_duration()
 
-        # NEW: Get current day data from daily file
-        today_data = get_current_day_data()
-        today_distance = today_data.get('total_distance_miles', 0) if today_data else 0
-        today_travel_time = 0
-        if today_data and today_data.get('start_time') and today_data.get('end_time'):
-            today_travel_time = (today_data['end_time'] - today_data['start_time']) / 3600
+    return {
+        "latitude": driver_data["latitude"],
+        "longitude": driver_data["longitude"],
+        "last_updated": driver_data["last_updated"],
+        "speed": current_speed,  # Vehicle icon speed (1-min priority, 5-min fallback)
+        "avg_speed_10min": avg_speed_10min,  # 10-minute moving average for status bar
+        "avg_speed_30min": avg_speed_30min,  # 30-minute moving average (persistent)
+        "avg_speed_1hour": avg_speed_1hour,  # 1-hour moving average for better tracking
+        "movement_status": status,  # "moving" or "stopped" (5-min detection)
+        "status_timestamp": timestamp,  # When movement started/stopped
+        "stopped_duration_seconds": stopped_duration_seconds,  # How long stopped
+        "today_mileage": round(today_distance, 1),  # Miles covered today from daily file
+        "daily_travel_time_hours": round(today_travel_time, 1),  # Hours traveled today
+        "daily_road_distance": round(today_distance, 1),  # Same as today_mileage from daily file
+        "daily_straight_distance": 0,  # Deprecated - using daily file now
+        "daily_start_location": daily_start_location,  # Start location for the day
+        "daily_end_location": today_data.get('end_location') if today_data else None,  # End location for the day
+        "first_movement_time": today_data.get('summary', {}).get('first_movement_time') if today_data else None,
+        "last_movement_time": today_data.get('summary', {}).get('last_movement_time') if today_data else None,
+        "actual_day_duration_hours": round(today_travel_time, 1),  # Total day duration
+        "previous_travel": previous_travel,  # Previous day travel history
+        "journey_average": journey_average,  # Average daily miles/hours from Sept 15
+        "journey_history": journey_history,  # Complete journey path for visualization from daily file
+        "stopped_since": driver_data["stopped_since"]
+    }
 
-        # Get previous day stats
-        prev_day_stats = get_previous_day_stats()
-        previous_travel = "No recent travel"
-        if prev_day_stats:
-            prev_date = datetime.fromisoformat(prev_day_stats['date']).strftime('%m/%d')
-            prev_hours = round(prev_day_stats['travel_time_hours'])
-            prev_miles = round(prev_day_stats['distance_miles'])
-            previous_travel = f"{prev_date} ({prev_hours}h, {prev_miles}mi)"
-
-        # Calculate journey average
-        journey_average = calculate_journey_average()
-
-        # Build journey history using current day data
-        journey_history = []
-        if today_data and today_data.get('minute_locations'):
-            # Sample the minute locations for visualization
-            locations = today_data['minute_locations']
-            step = max(1, len(locations) // 50)  # Limit to ~50 points
-
-            for i in range(0, len(locations), step):
-                loc = locations[i]
-                journey_history.append({
-                    "lat": loc['latitude'],
-                    "lng": loc['longitude'],
-                    "timestamp": loc['timestamp']
-                })
-
-            # Always include the latest point
-            if locations and journey_history[-1]['timestamp'] != locations[-1]['timestamp']:
-                last_loc = locations[-1]
-                journey_history.append({
-                    "lat": last_loc['latitude'],
-                    "lng": last_loc['longitude'],
-                    "timestamp": last_loc['timestamp']
-                })
-
-        # Get daily start location from today's data
-        daily_start_location = None
-        if today_data and today_data.get('start_location'):
-            daily_start_location = today_data['start_location']
-
-        return {
-            "latitude": driver_data["latitude"],
-            "longitude": driver_data["longitude"],
-            "last_updated": driver_data["last_updated"],
-            "speed": current_speed,  # Vehicle icon speed (1-min priority, 5-min fallback)
-            "avg_speed_10min": avg_speed_10min,  # 10-minute moving average for status bar
-            "avg_speed_30min": avg_speed_30min,  # 30-minute moving average (persistent)
-            "avg_speed_1hour": avg_speed_1hour,  # 1-hour moving average for better tracking
-            "movement_status": status,  # "moving" or "stopped" (5-min detection)
-            "status_timestamp": timestamp,  # When movement started/stopped
-            "stopped_duration_seconds": stopped_duration_seconds,  # How long stopped
-            "today_mileage": round(today_distance, 1),  # Miles covered today from daily file
-            "daily_travel_time_hours": round(today_travel_time, 1),  # Hours traveled today
-            "daily_road_distance": round(today_distance, 1),  # Same as today_mileage from daily file
-            "daily_straight_distance": 0,  # Deprecated - using daily file now
-            "daily_start_location": daily_start_location,  # Start location for the day
-            "daily_end_location": today_data.get('end_location') if today_data else None,  # End location for the day
-            "first_movement_time": today_data.get('summary', {}).get('first_movement_time') if today_data else None,
-            "last_movement_time": today_data.get('summary', {}).get('last_movement_time') if today_data else None,
-            "actual_day_duration_hours": round(today_travel_time, 1),  # Total day duration
-            "previous_travel": previous_travel,  # Previous day travel history
-            "journey_average": journey_average,  # Average daily miles/hours from Sept 15
-            "journey_history": journey_history,  # Complete journey path for visualization from daily file
-            "stopped_since": driver_data["stopped_since"]
-        }
 # Initialize application (for both local and production)
 def initialize_app():
     """Initialize the application data and background processes"""
