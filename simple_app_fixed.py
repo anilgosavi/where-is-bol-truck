@@ -1424,32 +1424,17 @@ def index():
         
         <div class="status-bar">
             <div class="status-left">
-                <span class="status-item">Status: <span class="status-value" id="status">Tracking</span></span>
-                <span class="separator">•</span>
-                <span class="status-item">Speed: <span class="status-value" id="speed">0</span> mph</span>
-                <span class="separator">•</span>
-                <span class="status-item">30m avg: <span class="status-value" id="avg30min">-</span> mph</span>
-                <span class="separator">•</span>
-                <span class="status-item">Traveled: <span class="status-value" id="travelTime">0</span>h, <span class="status-value" id="travelDistance">0</span>mi</span>
-                <span class="separator">•</span>
-                <span class="status-item">Prev Travel: <span class="status-value" id="prevTravel">Loading...</span></span>
-                <span class="separator">•</span>
-                <span class="status-item">Avg: <span class="status-value" id="journeyAvg">Loading...</span></span>
-                <span class="separator">•</span>
-                <span class="status-item">Updated: <span class="status-value" id="lastUpdate">Loading...</span></span>
+                <span class="status-item">Last updated: <span class="status-value" id="lastUpdate">Loading...</span></span>
                 <span class="separator">•</span>
                 <button class="refresh-btn" onclick="updateLocation()">
                     Refresh (<span id="countdown">60</span>s)
                 </button>
-            </div>
-            <div class="status-right">
-                <span class="status-item">Route to <span class="status-value">Milpitas</span></span>
                 <span class="separator">•</span>
-                <span class="status-item"><span class="status-value" id="distance">-</span> mi</span>
+                <span class="status-item"><span class="status-value" id="currentLocation">Loading...</span> to Milpitas, CA</span>
                 <span class="separator">•</span>
                 <span class="status-item">ETA: <span class="status-value" id="etaHours">-</span>h (<span class="status-value" id="etaDays">-</span>d)</span>
                 <span class="separator">•</span>
-                <span class="status-item">Arrive: <span class="status-value" id="etaDateTime">-</span></span>
+                <span class="status-item">Arrival: <span class="status-value" id="etaDateTime">-</span></span>
             </div>
         </div>
         
@@ -1952,26 +1937,155 @@ def index():
                     } else {
                         hasMoved = true; // First load
                     }
+                    // --- ETA display from backend ---
+                    document.getElementById('etaHours').textContent = (data.eta_hours !== null && data.eta_hours !== undefined) ? data.eta_hours : '-';
                     
-                    // Create truck icon with speed or stopped duration
-                    let truckHtml = '<div style="font-size: 24px; text-align: center; line-height: 1;">🚛</div>';
+                    // Calculate ETA days from eta_utc
+                    if (data.eta_utc) {
+                        const etaDate = new Date(data.eta_utc * 1000);
+                        const now = new Date();
+                        const diffTime = etaDate - now;
+                        const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                        document.getElementById('etaDays').textContent = days > 0 ? days : 0;
+                    } else {
+                        document.getElementById('etaDays').textContent = '-';
+                    }
+                    
+                    // Show ETA as destination timezone (Milpitas, CA = Pacific Time)
+                    if (data.eta_utc) {
+                        const etaDate = new Date(data.eta_utc * 1000);
+                        // Force Pacific timezone for destination (Milpitas, CA)
+                        document.getElementById('etaDateTime').textContent = etaDate.toLocaleString('en-US', {
+                            hour: '2-digit', 
+                            minute:'2-digit', 
+                            year: 'numeric', 
+                            month: 'short', 
+                            day: 'numeric', 
+                            timeZone: 'America/Los_Angeles',
+                            timeZoneName: 'short'
+                        });
+                    } else {
+                        document.getElementById('etaDateTime').textContent = '-';
+                    }
+                    
+                    // Get current location name using reverse geocoding
+                    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1`)
+                        .then(response => response.json())
+                        .then(locationData => {
+                            const address = locationData.address || {};
+                            console.log('Geocoding response:', address); // Debug log
+                            
+                            // Try to get the most specific location possible
+                            const city = address.city || address.town || address.village || address.hamlet || 
+                                        address.municipality || address.suburb || address.neighbourhood || '';
+                            const county = address.county || '';
+                            let state = address.state || '';
+                            
+                            // Convert full state names to abbreviations
+                            const stateAbbreviations = {
+                                'California': 'CA',
+                                'Texas': 'TX',
+                                'Florida': 'FL',
+                                'New York': 'NY',
+                                'Pennsylvania': 'PA',
+                                'Illinois': 'IL',
+                                'Ohio': 'OH',
+                                'Georgia': 'GA',
+                                'North Carolina': 'NC',
+                                'Michigan': 'MI',
+                                'New Jersey': 'NJ',
+                                'Virginia': 'VA',
+                                'Washington': 'WA',
+                                'Arizona': 'AZ',
+                                'Massachusetts': 'MA',
+                                'Tennessee': 'TN',
+                                'Indiana': 'IN',
+                                'Missouri': 'MO',
+                                'Maryland': 'MD',
+                                'Wisconsin': 'WI',
+                                'Colorado': 'CO',
+                                'Minnesota': 'MN',
+                                'South Carolina': 'SC',
+                                'Alabama': 'AL',
+                                'Louisiana': 'LA',
+                                'Kentucky': 'KY',
+                                'Oregon': 'OR',
+                                'Oklahoma': 'OK',
+                                'Connecticut': 'CT',
+                                'Iowa': 'IA',
+                                'Utah': 'UT',
+                                'Nevada': 'NV',
+                                'Arkansas': 'AR',
+                                'Mississippi': 'MS',
+                                'Kansas': 'KS',
+                                'New Mexico': 'NM',
+                                'Nebraska': 'NE',
+                                'West Virginia': 'WV',
+                                'Idaho': 'ID',
+                                'Hawaii': 'HI',
+                                'New Hampshire': 'NH',
+                                'Maine': 'ME',
+                                'Montana': 'MT',
+                                'Rhode Island': 'RI',
+                                'Delaware': 'DE',
+                                'South Dakota': 'SD',
+                                'North Dakota': 'ND',
+                                'Alaska': 'AK',
+                                'Vermont': 'VT',
+                                'Wyoming': 'WY'
+                            };
+                            
+                            // Use abbreviation if available, otherwise use original
+                            if (state && stateAbbreviations[state]) {
+                                state = stateAbbreviations[state];
+                            }
+                            
+                            let currentLocation = '';
+                            
+                            // Priority: City first, then county if no city, then state
+                            if (city) {
+                                currentLocation = state ? `${city}, ${state}` : city;
+                            } else if (county) {
+                                // Remove "County" suffix if present
+                                const cleanCounty = county.replace(/ County$/i, '');
+                                currentLocation = state ? `${cleanCounty}, ${state}` : cleanCounty;
+                            } else if (state) {
+                                currentLocation = state;
+                            } else {
+                                currentLocation = 'Current Location';
+                            }
+                            
+                            document.getElementById('currentLocation').textContent = currentLocation;
+                        })
+                        .catch(error => {
+                            console.log('Reverse geocoding failed:', error);
+                            document.getElementById('currentLocation').textContent = 'Current Location';
+                        });
+                    
+                    // Create truck icon with ETA bubble above status bubble
+                    let truckHtml = '<div style="font-size: 24px; text-align: center; line-height: 1; position: relative;">🚛</div>';
+                    
+                    // ETA bubble (green) - positioned above the status bubble
+                    if (data.eta_hours !== null && data.eta_hours !== undefined) {
+                        const etaRounded = Math.round(data.eta_hours * 10) / 10;
+                        truckHtml += `<div style="text-align: center; margin-top: 4px;"><div style="display: inline-block; background: #2ecc40; color: #fff; padding: 2px 6px; border-radius: 8px; font-size: 10px; font-weight: bold; box-shadow: 0 1px 3px rgba(0,0,0,0.2); white-space: nowrap;">ETA ${etaRounded}h</div></div>`;
+                    }
+                    
+                    // Status bubble (below ETA bubble)
                     if (movementStatus === 'moving') {
-                        // Show current speed when moving
-                        truckHtml += `<div class="truck-speed-label moving">${Math.round(currentSpeed)} mph</div>`;
+                        truckHtml += `<div class="truck-speed-label moving" style="margin-top: 2px;">${Math.round(currentSpeed)} mph</div>`;
                     } else if (movementStatus === 'stopped' && stoppedDurationSeconds > 0) {
-                        // Show stopped duration
                         const hours = Math.floor(stoppedDurationSeconds / 3600);
                         const minutes = Math.floor((stoppedDurationSeconds % 3600) / 60);
-                        
                         let stoppedText;
                         if (hours >= 1) {
                             stoppedText = `${hours}h ${minutes}m ago`;
                         } else {
                             stoppedText = `${minutes}m ago`;
                         }
-                        truckHtml += `<div class="truck-speed-label stopped">Stopped ${stoppedText}</div>`;
+                        truckHtml += `<div class="truck-speed-label stopped" style="margin-top: 2px;">Stopped ${stoppedText}</div>`;
                     } else {
-                        truckHtml += `<div class="truck-speed-label stopped">Stopped</div>`;
+                        truckHtml += `<div class="truck-speed-label stopped" style="margin-top: 2px;">Stopped</div>`;
                     }
                     
                     // Update truck marker position (always update marker even if not redrawing route)
@@ -2261,30 +2375,52 @@ def get_location():
         daily_start_location = today_data['start_location']
 
 
+    # --- ETA calculation using OSRM ---
+    DEST_LAT, DEST_LNG = 37.4419, -121.9080  # Milpitas, CA
+    osrm_url = f"http://router.project-osrm.org/route/v1/driving/{driver_data['longitude']},{driver_data['latitude']};{DEST_LNG},{DEST_LAT}?overview=false&alternatives=false&steps=false"
+    osrm_eta_hours = None
+    osrm_distance_miles = None
+    import time as _time
+    try:
+        osrm_resp = requests.get(osrm_url, timeout=5)
+        if osrm_resp.status_code == 200:
+            osrm_data = osrm_resp.json()
+            if osrm_data.get('routes') and len(osrm_data['routes']) > 0:
+                route = osrm_data['routes'][0]
+                osrm_eta_hours = route['duration'] / 3600.0
+                osrm_distance_miles = route['distance'] / 1609.34
+    except Exception as e:
+        print(f"❌ OSRM ETA error: {e}")
+    eta_hours = osrm_eta_hours
+    road_distance = osrm_distance_miles
+    eta_utc = int(_time.time() + eta_hours * 3600) if eta_hours is not None else None
     return {
         "latitude": driver_data["latitude"],
         "longitude": driver_data["longitude"],
         "last_updated": driver_data["last_updated"],
-        "speed": current_speed,  # Vehicle icon speed (1-min priority, 5-min fallback)
-        "avg_speed_10min": avg_speed_10min,  # 10-minute moving average for status bar
-        "avg_speed_30min": avg_speed_30min,  # 30-minute moving average (persistent)
-        "avg_speed_1hour": avg_speed_1hour,  # 1-hour moving average for better tracking
-        "movement_status": status,  # "moving" or "stopped" (5-min detection)
-        "status_timestamp": timestamp,  # When movement started/stopped
-        "stopped_duration_seconds": stopped_duration_seconds,  # How long stopped
-        "today_mileage": round(today_distance, 1),  # Miles covered today from daily file
-        "daily_travel_time_hours": round(today_travel_time, 1),  # Hours traveled today
-        "daily_road_distance": round(today_distance, 1),  # Same as today_mileage from daily file
-        "daily_straight_distance": 0,  # Deprecated - using daily file now
-        "daily_start_location": daily_start_location,  # Start location for the day
-        "daily_end_location": today_data.get('end_location') if today_data else None,  # End location for the day
+        "speed": current_speed,
+        "avg_speed_10min": avg_speed_10min,
+        "avg_speed_30min": avg_speed_30min,
+        "avg_speed_1hour": avg_speed_1hour,
+        "movement_status": status,
+        "status_timestamp": timestamp,
+        "stopped_duration_seconds": stopped_duration_seconds,
+        "today_mileage": round(today_distance, 1),
+        "daily_travel_time_hours": round(today_travel_time, 1),
+    "daily_road_distance": round(today_distance, 1),
+    "osrm_road_distance": round(road_distance, 1) if road_distance is not None else None,
+        "daily_straight_distance": 0,
+        "daily_start_location": daily_start_location,
+        "daily_end_location": today_data.get('end_location') if today_data else None,
         "first_movement_time": today_data.get('summary', {}).get('first_movement_time') if today_data else None,
         "last_movement_time": today_data.get('summary', {}).get('last_movement_time') if today_data else None,
-        "actual_day_duration_hours": round(today_travel_time, 1),  # Total day duration
-        "previous_travel": previous_travel,  # Previous day travel history
-        "journey_average": journey_average,  # Average daily miles/hours from Sept 15
-        "journey_history": journey_history,  # Complete journey path for visualization from daily file
-        "stopped_since": driver_data["stopped_since"]
+        "actual_day_duration_hours": round(today_travel_time, 1),
+        "previous_travel": previous_travel,
+        "journey_average": journey_average,
+        "journey_history": journey_history,
+        "stopped_since": driver_data["stopped_since"],
+    "eta_utc": eta_utc,
+    "eta_hours": round(eta_hours, 1) if eta_hours is not None else None
     }
 
 # Initialize application (for both local and production)
