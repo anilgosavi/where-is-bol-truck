@@ -1,3 +1,13 @@
+# Debug route to list all Redis keys (for development only!)
+@app.route('/debug/redis-keys')
+def debug_redis_keys():
+    if not redis_client:
+        return "Redis not configured", 500
+    try:
+        keys = [k.decode() if isinstance(k, bytes) else k for k in redis_client.keys('*')]
+        return {"keys": keys}
+    except Exception as e:
+        return {"error": str(e)}, 500
 from flask import Flask, render_template_string
 import threading
 import time
